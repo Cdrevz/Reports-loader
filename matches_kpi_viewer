@@ -1,0 +1,127 @@
+import streamlit as st
+import pandas as pd
+
+# Set up the Streamlit app
+st.set_page_config(page_title="SR KPI Dashboard", layout="wide")
+st.title("Livescore matches KPI")
+
+# File upload section
+st.sidebar.header("Data Input")
+uploaded_file = st.sidebar.file_uploader(
+    "Upload your match data file",
+    type=["csv", "xlsx"],
+    help="Supported formats: CSV, Excel"
+)
+
+# Filter controls in sidebar
+st.sidebar.header("Filters")
+selected_year = st.sidebar.selectbox(
+    "Select Year",
+    options=[2023, 2024, 2025, 2026],
+    index=2  # Default to 2025
+)
+
+month_options = ["January", "February", "March", "April", "May", "June", 
+                "July", "August", "September", "October", "November", "December"]
+
+selected_months = st.sidebar.multiselect(
+    "Select Months",
+    options=month_options,
+    default=["January"]  # Default selection
+)
+
+# Main content area
+if uploaded_file is not None:
+    try:
+        # Read the uploaded file
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+        else:
+            df = pd.read_excel(uploaded_file)
+        
+        # Ensure columns exist
+        required_columns = ['SPORTNAME', 'matchyear', 'MONTHNAME', 'nrofmatches']
+        if not all(col in df.columns for col in required_columns):
+            missing = [col for col in required_columns if col not in df.columns]
+            st.error(f"Missing required columns: {', '.join(missing)}")
+        else:
+            # Apply filters
+            filtered_df = df[
+                (df['matchyear'] == selected_year) & 
+                (df['MONTHNAME'].str.title().isin([m.title() for m in selected_months]))
+            ].copy()
+            
+            if not selected_months:
+                st.warning("Please select at least one month")
+            else:
+                # Calculate totals
+                total_matches = filtered_df['nrofmatches'].sum()
+                matches_by_sport = filtered_df.groupby('SPORTNAME')['nrofmatches'].sum().reset_index()
+                matches_by_month = filtered_df.groupby('MONTHNAME')['nrofmatches'].sum().reset_index()
+                
+                # Display results
+                st.subheader(f"Results for {', '.join(selected_months)} {selected_year}")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.metric(
+                        label="Total Matches",
+                        value=int(total_matches),
+                        help="Sum of all matches in selected period"
+                    )
+                    
+                with col2:
+                    st.metric(
+                        label="Unique Sports",
+                        value=len(matches_by_sport),
+                        help="Number of different sports with matches"
+                    )
+                
+                # Show monthly breakdown
+                st.subheader("Matches by Month")
+                if not matches_by_month.empty:
+                    st.bar_chart(
+                        matches_by_month.set_index('MONTHNAME'),
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("No matches found for the selected filters")
+                
+                # Show sport breakdown
+                st.subheader("Matches by Sport")
+                if not matches_by_sport.empty:
+                    st.bar_chart(
+                        matches_by_sport.set_index('SPORTNAME'),
+                        use_container_width=True
+                    )
+                
+                # Show data tables
+                st.subheader("Filtered Data")
+                st.dataframe(
+                    filtered_df[required_columns],
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # Download button for filtered data
+                csv = filtered_df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="Download filtered data as CSV",
+                    data=csv,
+                    file_name=f"matches_{'_'.join(selected_months)}_{selected_year}.csv",
+                    mime="text/csv"
+                )
+            
+    except Exception as e:
+        st.error(f"An error occurred while processing the file: {str(e)}")
+else:
+    st.info("Please upload a data file to begin analysis")
+    st.markdown("""
+    ### Expected file format:
+    The file should contain these columns:
+    - `SPORTNAME`: Name of the sport
+    - `matchyear`: Year of the match (e.g., 2025)
+    - `MONTHNAME`: Name of the month (e.g., "April")
+    - `nrofmatches`: Number of matches
+    """)
